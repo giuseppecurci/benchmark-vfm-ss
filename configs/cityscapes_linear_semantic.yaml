@@ -1,6 +1,6 @@
 trainer:
-  max_steps: 20000
-  val_check_interval: 1000
+  max_steps: 3760 #20000, to get 40 epochs with batch size 1
+  val_check_interval: 93 #1000, every epoch
   check_val_every_n_epoch: ~
   logger:
     class_path: lightning.pytorch.loggers.wandb.WandbLogger

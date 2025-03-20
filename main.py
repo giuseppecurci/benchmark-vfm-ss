@@ -3,7 +3,7 @@ from gitignore_parser import parse_gitignore
 import logging
 import torch
 from lightning.pytorch import cli
-from lightning.pytorch.callbacks import ModelSummary
+from lightning.pytorch.callbacks import ModelSummary, ModelCheckpoint
 from lightning.pytorch.loops.training_epoch_loop import _TrainingEpochLoop
 from lightning.pytorch.loops.fetchers import _DataFetcher, _DataLoaderIterDataFetcher
 
@@ -110,12 +110,20 @@ def cli_main():
             "precision": "16-mixed",
             "log_every_n_steps": 1,
             "enable_model_summary": False,
-            "callbacks": [ModelSummary(max_depth=2)],
+            "callbacks": [
+                ModelSummary(max_depth=2),
+                ModelCheckpoint(monitor='val_0_miou', save_top_k=1, mode='max', 
+                                dirpath='checkpoints_CS_test/depthv2_14psize', 
+                                filename='best-checkpoint-{epoch:02d}-{val_0_miou:.2f}')
+                ],
             "devices": 1,
-            "accumulate_grad_batches": 16,
+            "strategy": "ddp_find_unused_parameters_true", # should avoid gradient bucket mismatches, improving training efficiency
+            "accumulate_grad_batches": 16, # was 16, but using 2 GPUS -> 8x2 = 16
         },
     )
 
 
 if __name__ == "__main__":
+    #import os
+    #os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
     cli_main()

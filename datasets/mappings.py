@@ -1,3 +1,5 @@
+# Description: This file contains the mappings from the original labels to the labels used in the benchmark.
+
 import torchvision
 
 

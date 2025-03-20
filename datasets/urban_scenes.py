@@ -34,45 +34,46 @@ class UrbanScenes(LightningDataModule):
 
         self.transforms = Transforms(self.img_size, scale_range)
 
-    def setup(self, stage: Union[str, None] = None) -> LightningDataModule:
-        gta5_train_datasets = [
-            Dataset(
-                zip_path=Path(self.root, f"{i:02}_images.zip"),
-                target_zip_path=Path(self.root, f"{i:02}_labels.zip"),
-                img_folder_path_in_zip=Path("./images"),
-                target_folder_path_in_zip=Path("./labels"),
-                img_suffix=".png",
-                target_suffix=".png",
-                class_mapping=get_cityscapes_mapping(),
-                ignore_idx=self.ignore_idx,
+    def setup(self, dataset = "cityscapes", stage: Union[str, None] = None) -> LightningDataModule:
+        if dataset == "gta5":
+            gta5_train_datasets = [
+                Dataset(
+                    zip_path=Path(self.root, f"{i:02}_images.zip"),
+                    target_zip_path=Path(self.root, f"{i:02}_labels.zip"),
+                    img_folder_path_in_zip=Path("./images"),
+                    target_folder_path_in_zip=Path("./labels"),
+                    img_suffix=".png",
+                    target_suffix=".png",
+                    class_mapping=get_cityscapes_mapping(),
+                    ignore_idx=self.ignore_idx,
+                    transforms=self.transforms,
+                )
+                for i in range(1, 11)
+            ]
+            self.gta5_train_dataset = ConcatDataset(gta5_train_datasets)
+        elif dataset == "cityscapes":
+            cityscapes_dataset_kwargs = {
+                "img_suffix": ".png",
+                "target_suffix": ".png",
+                "img_stem_suffix": "leftImg8bit", 
+                "target_stem_suffix": "gtFine_labelIds",
+                "zip_path": Path(self.root, "leftImg8bit_trainvaltest.zip"),
+                "target_zip_path": Path(self.root, "gtFine_trainvaltest.zip"),
+                "class_mapping": get_cityscapes_mapping(),
+            }
+            self.cityscapes_train_dataset = Dataset(
                 transforms=self.transforms,
+                img_folder_path_in_zip=Path("./leftImg8bit/train"),
+                target_folder_path_in_zip=Path("./gtFine/train"),
+                ignore_idx=self.ignore_idx,
+                **cityscapes_dataset_kwargs,
             )
-            for i in range(1, 11)
-        ]
-        self.gta5_train_dataset = ConcatDataset(gta5_train_datasets)
-
-        cityscapes_dataset_kwargs = {
-            "img_suffix": ".png",
-            "target_suffix": ".png",
-            "img_stem_suffix": "leftImg8bit",
-            "target_stem_suffix": "gtFine_labelIds",
-            "zip_path": Path(self.root, "leftImg8bit_trainvaltest.zip"),
-            "target_zip_path": Path(self.root, "gtFine_trainvaltest.zip"),
-            "class_mapping": get_cityscapes_mapping(),
-        }
-        self.cityscapes_train_dataset = Dataset(
-            transforms=self.transforms,
-            img_folder_path_in_zip=Path("./leftImg8bit/train"),
-            target_folder_path_in_zip=Path("./gtFine/train"),
-            ignore_idx=self.ignore_idx,
-            **cityscapes_dataset_kwargs,
-        )
-        self.cityscapes_val_dataset = Dataset(
-            img_folder_path_in_zip=Path("./leftImg8bit/val"),
-            target_folder_path_in_zip=Path("./gtFine/val"),
-            ignore_idx=self.ignore_idx,
-            **cityscapes_dataset_kwargs,
-        )
+            self.cityscapes_val_dataset = Dataset(
+                img_folder_path_in_zip=Path("./leftImg8bit/val"),
+                target_folder_path_in_zip=Path("./gtFine/val"),
+                ignore_idx=self.ignore_idx,
+                **cityscapes_dataset_kwargs,
+            )
 
         return self
 

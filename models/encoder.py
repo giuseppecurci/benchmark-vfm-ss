@@ -1,5 +1,6 @@
 from typing import Optional
 import timm
+from .extra_models import HF_models
 import torch
 import torch.nn as nn
 from timm.layers import (
@@ -9,7 +10,6 @@ from timm.layers import (
 )
 from timm.models._manipulate import checkpoint_seq
 from torch.nn.functional import interpolate
-
 
 class Encoder(nn.Module):
     def __init__(
@@ -28,7 +28,13 @@ class Encoder(nn.Module):
             "pretrained": pretrained,
             "num_classes": 0,
         }
-        self.encoder = timm.create_model(**model_kwargs)
+        if 'depth-anything' in encoder_name:
+            hf_model = HF_models(encoder_name)
+            self.encoder = hf_model.encoder
+            self.encoder.forward_features = hf_model.forward_features
+            #self.encoder.config.apply_layer_norm = False
+        else: 
+            self.encoder = timm.create_model(**model_kwargs)
 
         pixel_mean = torch.tensor(self.encoder.default_cfg["mean"]).reshape(1, -1, 1, 1)
         pixel_std = torch.tensor(self.encoder.default_cfg["std"]).reshape(1, -1, 1, 1)
@@ -38,12 +44,21 @@ class Encoder(nn.Module):
 
         self.grid_size = tuple(round(size / patch_size) for size in img_size)
 
-        self.embed_dim = (
-            self.encoder.embed_dim
-            if hasattr(self.encoder, "embed_dim")
-            else self.encoder.num_features
-        )
+        if hasattr(self.encoder, "embed_dim"):
+            self.embed_dim = self.encoder.embed_dim
+        elif hasattr(self.encoder, "config"):
+            self.embed_dim = self.encoder.config.backbone_config.hidden_size
+        else:
+            self.embed_dim = self.encoder.num_features
+        
+        # replaced by block above
+        #self.embed_dim = (
+        #    self.encoder.embed_dim
+        #    if hasattr(self.encoder, "embed_dim")
+        #    else self.encoder.num_features
+        #)
 
+        # does not work for depthv2 models
         if sub_norm:
             for block in self.encoder.blocks:
                 new_mlp = type(block.mlp)(
@@ -126,6 +141,54 @@ class Encoder(nn.Module):
             self.encoder.patch_embed.num_patches = self.grid_size[0] * self.grid_size[1]
             self.encoder.patch_embed.img_size = img_size
 
+        if hasattr(self.encoder, "embeddings"):
+            if (
+                self.encoder.config.grid_size[0]
+                != self.encoder.config.grid_size[1]
+                or self.encoder.config.backbone_config.patch_size[0]
+                != self.encoder.config.backbone_config.patch_size[1]
+            ):
+                raise ValueError("pretrained grid and patch size must be square")
+
+            self.encoder.config.backbone_config.patch_size = (patch_size, patch_size)
+            self.encoder.embeddings.patch_embeddings.projection.kernel_size = (patch_size, patch_size)
+            self.encoder.embeddings.patch_embeddings.projection.stride = (patch_size, patch_size)
+            self.encoder.embeddings.patch_embeddings.projection.weight = nn.Parameter(
+                resample_patch_embed(
+                    self.encoder.embeddings.patch_embeddings.projection.weight,
+                    [patch_size, patch_size],
+                )
+            )
+
+            self.encoder.config.grid_size = self.grid_size
+            self.encoder.config.num_patches = self.grid_size[0] * self.grid_size[1]
+            self.encoder.config.backbone_config.image_size = img_size
+            if hasattr(self.encoder.embeddings, "position_embeddings"):
+                if self.encoder.embeddings.position_embeddings.dim() == 4:
+                    pos_embed = resample_abs_pos_embed_nhwc(
+                        self.encoder.embeddings.position_embeddings, 
+                        [max(self.grid_size), max(self.grid_size)]
+                    )[:, : self.grid_size[0], : self.grid_size[1], :] 
+                else:
+                    num_prefix_tokens = self.encoder.num_prefix_tokens
+                    pos_embed = resample_abs_pos_embed(
+                        self.encoder.embeddings.position_embeddings,
+                        [
+                            max(self.grid_size),
+                            max(self.grid_size),
+                        ],
+                        num_prefix_tokens=num_prefix_tokens,
+                    )
+                    prefix_pos_embed = pos_embed[:, :num_prefix_tokens, :]
+                    pos_embed = pos_embed[:, num_prefix_tokens:, :]
+                    pos_embed = pos_embed.reshape(
+                        1, max(self.grid_size), max(self.grid_size), -1
+                    )[:, : self.grid_size[0], : self.grid_size[1], :]
+                    pos_embed = torch.cat(
+                        [prefix_pos_embed, pos_embed.flatten(1, 2)], dim=1
+                    )
+                self.encoder.embeddings.position_embeddings = nn.Parameter(pos_embed)
+
         if hasattr(self.encoder, "pos_embed"):
             if self.encoder.pos_embed.dim() == 4:
                 pos_embed = resample_abs_pos_embed_nhwc(
@@ -182,9 +245,11 @@ class Encoder(nn.Module):
         return nn.Parameter(rel_pos)
 
     def forward(self, x: torch.Tensor):
+        #print(' Called encoder forward')
         x = (x - self.pixel_mean) / self.pixel_std
-
+        #print(' Normalized:',x.shape)
         x = self.encoder.forward_features(x)
+        #print(' Logits:',x.shape)
 
         if x.dim() == 4:
             x = x.flatten(2).transpose(1, 2)

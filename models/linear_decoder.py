@@ -26,8 +26,11 @@ class LinearDecoder(Encoder):
         self.head = nn.Linear(self.embed_dim, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        #print("Forwarding Linear Decoder")
         x = super().forward(x)
+        #print('Got output from decoder:', x.shape)
         x = self.head(x)
+        #print('Got output from head:', x.shape)
         x = x.transpose(1, 2)
-
+        #print('Transposed:', x.shape)
         return x.reshape(x.shape[0], -1, *self.grid_size)
