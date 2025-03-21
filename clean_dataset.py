@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 def clean_out_of_context(root_dir):
     '''
     Remove all mask files that are not _gtFine_labelIds.png or do not have a corresponding image file.
+    Given the design of the Cityscapes dataset, this function is not strictly necessary.
     '''
     folders = ['leftImg8bit', 'gtFine']
     image_path = os.path.join(root_dir, folders[0])
